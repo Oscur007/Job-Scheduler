@@ -7,16 +7,23 @@ import (
 	"time"
 	"github.com/Oscur007/job-scheduler/internal/job"
 	"github.com/Oscur007/job-scheduler/internal/queue"
+	"github.com/Oscur007/job-scheduler/internal/store"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	q := queue.NewRedisQueue("localhost:6379")
 	ctx := context.Background()
 
+	q := queue.NewRedisQueue("localhost:6379")
 	if err := q.Ping(ctx); err != nil {
 		log.Fatalf("could not connect to redis: %v", err)
 	}
+
+	pgStore, err := store.NewPostgresStore("postgres://jobuser:jobpass@localhost:5432/jobscheduler?sslmode=disable")
+	if err != nil {
+		log.Fatalf("could not connect to postgres: %v", err)
+	}
+	defer pgStore.Close()
 
 	fmt.Println("worker started, polling for jobs...")
 
@@ -38,5 +45,17 @@ func main() {
 		}
 
 		fmt.Printf("processing job: %s (type=%s, payload=%s)\n", j.ID, j.Type, j.Payload)
+
+		if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusRunning); err != nil {
+			log.Printf("failed to update status to running: %v", err)
+		}
+
+		time.Sleep(500 * time.Millisecond)
+
+		if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusDone); err != nil {
+			log.Printf("failed to update status to done: %v", err)
+		}
+
+		fmt.Printf("job %s marked done\n", j.ID)
 	}
 }
