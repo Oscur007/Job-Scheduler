@@ -7,7 +7,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const QueueKey = "jobs:queue"
+const (
+	QueueKey = "jobs:queue"
+	DataKey  = "jobs:data"
+)
 
 type RedisQueue struct {
 	client *redis.Client
@@ -20,14 +23,15 @@ func NewRedisQueue(addr string) *RedisQueue {
 	return &RedisQueue{client: client}
 }
 
-func (q *RedisQueue) Enqueue(ctx context.Context, jobID string, score float64) error {
-	return q.client.ZAdd(ctx, QueueKey, redis.Z{
-		Score:  score,
-		Member: jobID,
-	}).Err()
+func (q *RedisQueue) EnqueueJob(ctx context.Context, jobID string, jobJSON string, score float64) error {
+	pipe := q.client.TxPipeline()
+	pipe.HSet(ctx, DataKey, jobID, jobJSON)
+	pipe.ZAdd(ctx, QueueKey, redis.Z{Score: score, Member: jobID})
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
-func (q *RedisQueue) Dequeue(ctx context.Context) (string, error) {
+func (q *RedisQueue) DequeueJob(ctx context.Context) (string, error) {
 	now := float64(time.Now().Unix())
 
 	result, err := q.client.ZRangeByScore(ctx, QueueKey, &redis.ZRangeBy{
@@ -52,7 +56,12 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (string, error) {
 		return "", redis.Nil
 	}
 
-	return jobID, nil
+	jobJSON, err := q.client.HGet(ctx, DataKey, jobID).Result()
+	if err != nil {
+		return "", err
+	}
+
+	return jobJSON, nil
 }
 
 func (q *RedisQueue) Ping(ctx context.Context) error {
