@@ -27,18 +27,18 @@ type Job struct {
 	ScheduledAt time.Time `json:"scheduled_at"`
 }
 
-func New(jobType, payload string, maxRetries int) *Job {
+func New(jobType, payload string, maxRetries, priority int, delay time.Duration) *Job {
 	now := time.Now()
 	return &Job{
 		ID:          uuid.NewString(),
 		Type:        jobType,
 		Payload:     payload,
 		Status:      StatusPending,
-		Priority:    0,
+		Priority:    priority,
 		Retries:     0,
 		MaxRetries:  maxRetries,
 		CreatedAt:   now,
-		ScheduledAt: now,
+		ScheduledAt: now.Add(delay),
 	}
 }
 

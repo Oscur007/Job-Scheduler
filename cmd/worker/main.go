@@ -71,7 +71,7 @@ func main() {
 		if j.CanRetry() {
 			backoff := math.Pow(2, float64(j.Retries))
 			nextRun := time.Now().Add(time.Duration(backoff) * time.Second)
-			score := float64(nextRun.Unix())
+			score := queue.ComputeScore(nextRun, j.Priority)
 
 			updatedJSON, _ := j.Serialize()
 			if err := q.EnqueueJob(ctx, j.ID, updatedJSON, score); err != nil {
