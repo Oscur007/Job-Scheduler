@@ -33,11 +33,13 @@ func (q *RedisQueue) EnqueueJob(ctx context.Context, jobID string, jobJSON strin
 }
 
 func (q *RedisQueue) DequeueJob(ctx context.Context) (string, error) {
-	now := float64(time.Now().Unix())
+	now := ComputeScore(time.Now(), 100)
 
-	result, err := q.client.ZRangeByScore(ctx, QueueKey, &redis.ZRangeBy{
-		Min:   "0",
-		Max:   fmt.Sprintf("%f", now),
+	result, err := q.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key: QueueKey,
+		ByScore: true,
+		Start: "0",
+		Stop: fmt.Sprintf("%f", now),
 		Count: 1,
 	}).Result()
 	if err != nil {
@@ -71,4 +73,9 @@ func (q *RedisQueue) Ping(ctx context.Context) error {
 
 func (q *RedisQueue) EnqueueDLQ(ctx context.Context, jobID string) error {
 	return q.client.LPush(ctx, DLQKey, jobID).Err()
+}
+
+func ComputeScore(scheduledAt time.Time, priority int) float64 {
+	const maxPriority = 100
+	return float64(scheduledAt.Unix())*1000 + float64(maxPriority-priority)
 }

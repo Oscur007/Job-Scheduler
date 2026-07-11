@@ -24,21 +24,25 @@ func main() {
 	}
 	defer pgStore.Close()
 
-	j := job.New("send_email", `{"to":"test@example.com"}`, 3)
+	j1 := job.New("send_email", `{"to":"urgent@example.com"}`, 3, 10, 0)
 
-	if err := pgStore.InsertJob(ctx, j); err != nil {
-		log.Fatalf("failed to insert job into postgres: %v", err)
+	j2 := job.New("generate_report", `{"report":"monthly"}`, 3, 0, 10*time.Second)
+
+	for _, j := range []*job.Job{j1, j2} {
+		if err := pgStore.InsertJob(ctx, j); err != nil {
+			log.Fatalf("failed to insert job into postgres: %v", err)
+		}
+
+		jobJSON, err := j.Serialize()
+		if err != nil {
+			log.Fatalf("failed to serialize job: %v", err)
+		}
+
+		score := queue.ComputeScore(j.ScheduledAt, j.Priority)
+		if err := q.EnqueueJob(ctx, j.ID, jobJSON, score); err != nil {
+			log.Fatalf("failed to enqueue job: %v", err)
+		}
+
+		fmt.Printf("enqueued job: %s (priority=%d, scheduled_at=%s)\n", j.ID, j.Priority, j.ScheduledAt.Format(time.RFC3339))
 	}
-
-	jobJSON, err := j.Serialize()
-	if err != nil {
-		log.Fatalf("failed to serialize job: %v", err)
-	}
-
-	score := float64(time.Now().Unix())
-	if err := q.EnqueueJob(ctx, j.ID, jobJSON, score); err != nil {
-		log.Fatalf("failed to enqueue job: %v", err)
-	}
-
-	fmt.Printf("enqueued job: %s\n", j.ID)
 }
