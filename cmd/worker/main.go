@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
+	"math/rand"
 	"time"
 	"github.com/Oscur007/job-scheduler/internal/job"
 	"github.com/Oscur007/job-scheduler/internal/queue"
@@ -44,18 +46,51 @@ func main() {
 			continue
 		}
 
-		fmt.Printf("processing job: %s (type=%s, payload=%s)\n", j.ID, j.Type, j.Payload)
+		fmt.Printf("processing job: %s (type=%s, attempt=%d)\n", j.ID, j.Type, j.Retries+1)
 
 		if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusRunning); err != nil {
 			log.Printf("failed to update status to running: %v", err)
 		}
 
 		time.Sleep(500 * time.Millisecond)
+		success := rand.Intn(2) == 0
 
-		if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusDone); err != nil {
-			log.Printf("failed to update status to done: %v", err)
+		if success {
+			if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusDone); err != nil {
+				log.Printf("failed to update status to done: %v", err)
+			}
+			fmt.Printf("job %s marked done\n", j.ID)
+			continue
 		}
 
-		fmt.Printf("job %s marked done\n", j.ID)
+		if err := pgStore.IncrementRetries(ctx, j.ID); err != nil {
+			log.Printf("failed to increment retries: %v", err)
+		}
+		j.Retries++
+
+		if j.CanRetry() {
+			backoff := math.Pow(2, float64(j.Retries))
+			nextRun := time.Now().Add(time.Duration(backoff) * time.Second)
+			score := float64(nextRun.Unix())
+
+			updatedJSON, _ := j.Serialize()
+			if err := q.EnqueueJob(ctx, j.ID, updatedJSON, score); err != nil {
+				log.Printf("failed to re-enqueue job: %v", err)
+			}
+
+			if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusPending); err != nil {
+				log.Printf("failed to update status to pending: %v", err)
+			}
+
+			fmt.Printf("job %s failed, retrying in %.0fs (attempt %d/%d)\n", j.ID, backoff, j.Retries, j.MaxRetries)
+		} else {
+			if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusFailed); err != nil {
+				log.Printf("failed to update status to failed: %v", err)
+			}
+			if err := q.EnqueueDLQ(ctx, j.ID); err != nil {
+				log.Printf("failed to enqueue to DLQ: %v", err)
+			}
+			fmt.Printf("job %s permanently failed after %d retries, moved to DLQ\n", j.ID, j.Retries)
+		}
 	}
 }

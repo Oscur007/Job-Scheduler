@@ -9,7 +9,8 @@ import (
 
 const (
 	QueueKey = "jobs:queue"
-	DataKey  = "jobs:data"
+	DataKey = "jobs:data"
+	DLQKey = "jobs:dlq"
 )
 
 type RedisQueue struct {
@@ -66,4 +67,8 @@ func (q *RedisQueue) DequeueJob(ctx context.Context) (string, error) {
 
 func (q *RedisQueue) Ping(ctx context.Context) error {
 	return q.client.Ping(ctx).Err()
+}
+
+func (q *RedisQueue) EnqueueDLQ(ctx context.Context, jobID string) error {
+	return q.client.LPush(ctx, DLQKey, jobID).Err()
 }
