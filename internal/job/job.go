@@ -57,3 +57,7 @@ func Deserialize(data string) (*Job, error) {
 	}
 	return &j, nil
 }
+
+func (j *Job) CanRetry() bool {
+	return j.Retries < j.MaxRetries
+}
