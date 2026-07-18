@@ -11,6 +11,7 @@ const (
 	QueueKey = "jobs:queue"
 	DataKey = "jobs:data"
 	DLQKey = "jobs:dlq"
+	ProcessingKey = "jobs:processing"
 )
 
 type RedisQueue struct {
@@ -73,6 +74,42 @@ func (q *RedisQueue) Ping(ctx context.Context) error {
 
 func (q *RedisQueue) EnqueueDLQ(ctx context.Context, jobID string) error {
 	return q.client.LPush(ctx, DLQKey, jobID).Err()
+}
+
+func (q *RedisQueue) MarkProcessing(ctx context.Context, jobID string, timeout time.Duration) error {
+	deadline := float64(time.Now().Add(timeout).Unix())
+	return q.client.ZAdd(ctx, ProcessingKey, redis.Z{
+		Score:  deadline,
+		Member: jobID,
+	}).Err()
+}
+
+func (q *RedisQueue) CompleteProcessing(ctx context.Context, jobID string) error {
+	return q.client.ZRem(ctx, ProcessingKey, jobID).Err()
+}
+
+func (q *RedisQueue) ReapExpired(ctx context.Context) ([]string, error) {
+	now := fmt.Sprintf("%d", time.Now().Unix())
+
+	expired, err := q.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     ProcessingKey,
+		ByScore: true,
+		Start:   "0",
+		Stop:    now,
+	}).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, jobID := range expired {
+		q.client.ZRem(ctx, ProcessingKey, jobID)
+	}
+
+	return expired, nil
+}
+
+func (q *RedisQueue) GetJobData(ctx context.Context, jobID string) (string, error) {
+	return q.client.HGet(ctx, DataKey, jobID).Result()
 }
 
 func ComputeScore(scheduledAt time.Time, priority int) float64 {

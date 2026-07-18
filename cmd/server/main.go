@@ -1,22 +1,16 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"log"
-	"time"
-	"github.com/Oscur007/job-scheduler/internal/job"
+	"net/http"
+	"github.com/Oscur007/job-scheduler/internal/api"
 	"github.com/Oscur007/job-scheduler/internal/queue"
 	"github.com/Oscur007/job-scheduler/internal/store"
+	"github.com/go-chi/chi/v5"
 )
 
 func main() {
-	ctx := context.Background()
-
 	q := queue.NewRedisQueue("localhost:6379")
-	if err := q.Ping(ctx); err != nil {
-		log.Fatalf("could not connect to redis: %v", err)
-	}
 
 	pgStore, err := store.NewPostgresStore("postgres://jobuser:jobpass@localhost:5432/jobscheduler?sslmode=disable")
 	if err != nil {
@@ -24,25 +18,15 @@ func main() {
 	}
 	defer pgStore.Close()
 
-	j1 := job.New("send_email", `{"to":"urgent@example.com"}`, 3, 10, 0)
+	h := api.NewHandler(pgStore, q)
 
-	j2 := job.New("generate_report", `{"report":"monthly"}`, 3, 0, 10*time.Second)
+	r := chi.NewRouter()
+	r.Post("/jobs", h.CreateJob)
+	r.Get("/jobs", h.ListJobs)
+	r.Get("/jobs/{id}", h.GetJob)
 
-	for _, j := range []*job.Job{j1, j2} {
-		if err := pgStore.InsertJob(ctx, j); err != nil {
-			log.Fatalf("failed to insert job into postgres: %v", err)
-		}
-
-		jobJSON, err := j.Serialize()
-		if err != nil {
-			log.Fatalf("failed to serialize job: %v", err)
-		}
-
-		score := queue.ComputeScore(j.ScheduledAt, j.Priority)
-		if err := q.EnqueueJob(ctx, j.ID, jobJSON, score); err != nil {
-			log.Fatalf("failed to enqueue job: %v", err)
-		}
-
-		fmt.Printf("enqueued job: %s (priority=%d, scheduled_at=%s)\n", j.ID, j.Priority, j.ScheduledAt.Format(time.RFC3339))
+	log.Println("server listening on :8080")
+	if err := http.ListenAndServe(":8080", r); err != nil {
+		log.Fatal(err)
 	}
 }
