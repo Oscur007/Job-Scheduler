@@ -13,6 +13,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const processingTimeout = 60 * time.Second
+
 func main() {
 	ctx := context.Background()
 
@@ -27,14 +29,48 @@ func main() {
 	}
 	defer pgStore.Close()
 
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			expired, err := q.ReapExpired(ctx)
+			if err != nil {
+				log.Printf("reaper error: %v", err)
+				continue
+			}
+
+			for _, jobID := range expired {
+				jobJSON, err := q.GetJobData(ctx, jobID)
+				if err != nil {
+					log.Printf("reaper: could not fetch job data for %s: %v", jobID, err)
+					continue
+				}
+
+				j, err := job.Deserialize(jobJSON)
+				if err != nil {
+					continue
+				}
+
+				score := queue.ComputeScore(time.Now(), j.Priority)
+				if err := q.EnqueueJob(ctx, j.ID, jobJSON, score); err != nil {
+					log.Printf("reaper: failed to requeue job %s: %v", j.ID, err)
+					continue
+				}
+
+				fmt.Printf("reaper: recovered crashed job %s, requeued\n", j.ID)
+			}
+		}
+	}()
+
 	fmt.Println("worker started, polling for jobs...")
 
 	for {
 		jobJSON, err := q.DequeueJob(ctx)
+
 		if err == redis.Nil {
 			time.Sleep(1 * time.Second)
 			continue
 		}
+
 		if err != nil {
 			log.Printf("error dequeuing job: %v", err)
 			continue
@@ -44,6 +80,10 @@ func main() {
 		if err != nil {
 			log.Printf("error deserializing job: %v", err)
 			continue
+		}
+
+		if err := q.MarkProcessing(ctx, j.ID, processingTimeout); err != nil {
+			log.Printf("failed to mark processing: %v", err)
 		}
 
 		fmt.Printf("processing job: %s (type=%s, attempt=%d)\n", j.ID, j.Type, j.Retries+1)
@@ -59,6 +99,8 @@ func main() {
 			if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusDone); err != nil {
 				log.Printf("failed to update status to done: %v", err)
 			}
+
+			q.CompleteProcessing(ctx, j.ID)
 			fmt.Printf("job %s marked done\n", j.ID)
 			continue
 		}
@@ -66,6 +108,7 @@ func main() {
 		if err := pgStore.IncrementRetries(ctx, j.ID); err != nil {
 			log.Printf("failed to increment retries: %v", err)
 		}
+
 		j.Retries++
 
 		if j.CanRetry() {
@@ -82,14 +125,18 @@ func main() {
 				log.Printf("failed to update status to pending: %v", err)
 			}
 
+			q.CompleteProcessing(ctx, j.ID)
 			fmt.Printf("job %s failed, retrying in %.0fs (attempt %d/%d)\n", j.ID, backoff, j.Retries, j.MaxRetries)
 		} else {
 			if err := pgStore.UpdateStatus(ctx, j.ID, job.StatusFailed); err != nil {
 				log.Printf("failed to update status to failed: %v", err)
 			}
+
 			if err := q.EnqueueDLQ(ctx, j.ID); err != nil {
 				log.Printf("failed to enqueue to DLQ: %v", err)
 			}
+
+			q.CompleteProcessing(ctx, j.ID)
 			fmt.Printf("job %s permanently failed after %d retries, moved to DLQ\n", j.ID, j.Retries)
 		}
 	}

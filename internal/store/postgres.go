@@ -64,6 +64,28 @@ func (s *PostgresStore) GetJob(ctx context.Context, jobID string) (*job.Job, err
 	return &j, nil
 }
 
+func (s *PostgresStore) ListJobs(ctx context.Context) ([]*job.Job, error) {
+	query := `
+		SELECT id, type, payload, status, priority, retries, max_retries, created_at, scheduled_at
+		FROM jobs ORDER BY created_at DESC LIMIT 100
+	`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []*job.Job
+	for rows.Next() {
+		var j job.Job
+		if err := rows.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Priority, &j.Retries, &j.MaxRetries, &j.CreatedAt, &j.ScheduledAt); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, &j)
+	}
+	return jobs, nil
+}
+
 func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
