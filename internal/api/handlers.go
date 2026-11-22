@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+	"strconv"
 
 	"github.com/Oscur007/job-scheduler/internal/job"
 	"github.com/Oscur007/job-scheduler/internal/queue"
@@ -11,13 +12,18 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+var allowedPageSizes = map[int]bool{10: true, 25: true, 50: true, 100: true}
+
 type Handler struct {
 	Store *store.PostgresStore
 	Queue *queue.RedisQueue
 }
 
-func NewHandler(s *store.PostgresStore, q *queue.RedisQueue) *Handler {
-	return &Handler{Store: s, Queue: q}
+type ListJobsResponse struct {
+	Jobs     []*job.Job `json:"jobs"`
+	Total    int        `json:"total"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
 }
 
 type CreateJobRequest struct {
@@ -26,6 +32,10 @@ type CreateJobRequest struct {
 	Priority   int    `json:"priority"`
 	MaxRetries int    `json:"max_retries"`
 	DelaySecs  int    `json:"delay_seconds"`
+}
+
+func NewHandler(s *store.PostgresStore, q *queue.RedisQueue) *Handler {
+	return &Handler{Store: s, Queue: q}
 }
 
 func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
@@ -82,12 +92,43 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := h.Store.ListJobs(r.Context())
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if !allowedPageSizes[pageSize] {
+		pageSize = 10
+	}
+
+	ctx := r.Context()
+	total, err := h.Store.CountJobs(ctx)
+	if err != nil {
+		http.Error(w, "failed to count jobs", http.StatusInternalServerError)
+		return
+	}
+
+	jobs, err := h.Store.ListJobs(ctx, pageSize, (page-1)*pageSize)
 	if err != nil {
 		http.Error(w, "failed to list jobs", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jobs)
+	json.NewEncoder(w).Encode(ListJobsResponse{
+		Jobs:     jobs,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	})
+}
+
+func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
+	counts, err := h.Store.StatusCounts(r.Context())
+	if err != nil {
+		http.Error(w, "failed to get stats", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(counts)
 }

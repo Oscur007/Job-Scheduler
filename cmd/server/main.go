@@ -24,6 +24,10 @@ func main() {
 	r.Post("/jobs", h.CreateJob)
 	r.Get("/jobs", h.ListJobs)
 	r.Get("/jobs/{id}", h.GetJob)
+	r.Get("/stats", h.GetStats)
+
+	fs := http.FileServer(http.Dir("./ui"))
+	r.Handle("/*", fs)
 
 	log.Println("server listening on :8080")
 	if err := http.ListenAndServe(":8080", r); err != nil {
