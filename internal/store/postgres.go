@@ -64,18 +64,20 @@ func (s *PostgresStore) GetJob(ctx context.Context, jobID string) (*job.Job, err
 	return &j, nil
 }
 
-func (s *PostgresStore) ListJobs(ctx context.Context) ([]*job.Job, error) {
+func (s *PostgresStore) ListJobs(ctx context.Context, limit, offset int) ([]*job.Job, error) {
 	query := `
 		SELECT id, type, payload, status, priority, retries, max_retries, created_at, scheduled_at
-		FROM jobs ORDER BY created_at DESC LIMIT 100
+		FROM jobs
+		ORDER BY created_at DESC, id DESC
+		LIMIT $1 OFFSET $2
 	`
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var jobs []*job.Job
+	jobs := []*job.Job{}
 	for rows.Next() {
 		var j job.Job
 		if err := rows.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Priority, &j.Retries, &j.MaxRetries, &j.CreatedAt, &j.ScheduledAt); err != nil {
@@ -83,7 +85,32 @@ func (s *PostgresStore) ListJobs(ctx context.Context) ([]*job.Job, error) {
 		}
 		jobs = append(jobs, &j)
 	}
-	return jobs, nil
+	return jobs, rows.Err()
+}
+
+func (s *PostgresStore) CountJobs(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs`).Scan(&n)
+	return n, err
+}
+
+func (s *PostgresStore) StatusCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM jobs GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var status string
+		var n int
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, err
+		}
+		counts[status] = n
+	}
+	return counts, rows.Err()
 }
 
 func (s *PostgresStore) Close() error {

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Job Scheduler Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="header">
+  <div class="title"><span class="pulse"></span> Job Scheduler Console</div>
+  <div class="stats" id="stats"></div>
+</div>
+
+<div class="layout">
+  <div class="panel submit-panel">
+    <h2>Submit job</h2>
+    <label>Type</label>
+    <select id="type">
+      <option value="send_email">Send email</option>
+      <option value="generate_report">Generate report</option>
+    </select>
+    <label>Payload (JSON)</label>
+    <input id="payload" placeholder='{"to":"test@example.com"}' value='{"to":"test@example.com"}'>
+    <label>Priority</label>
+    <input id="priority" type="number" value="0">
+    <label>Delay (seconds)</label>
+    <input id="delay" type="number" value="0">
+    <label>Max retries</label>
+    <input id="max_retries" type="number" value="3">
+    <button onclick="submitJob()">Submit job</button>
+  </div>
+
+  <div class="panel jobs-panel">
+    <h2>Jobs</h2>
+    <div id="jobs-table"></div>
+    <div class="pager">
+      <div class="pager-left">
+        <span class="pager-text">Rows per page</span>
+        <select id="page-size">
+          <option value="10" selected>10</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <span class="pager-text" id="page-info"></span>
+      </div>
+      <div class="pager-right">
+        <span class="pager-text" id="page-label"></span>
+        <button id="prev-page" aria-label="Previous page" title="Previous page">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <button id="next-page" aria-label="Next page" title="Next page">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
