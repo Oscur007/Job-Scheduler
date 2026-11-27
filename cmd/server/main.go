@@ -1,18 +1,26 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+
 	"github.com/Oscur007/job-scheduler/internal/api"
+	"github.com/Oscur007/job-scheduler/internal/config"
 	"github.com/Oscur007/job-scheduler/internal/queue"
 	"github.com/Oscur007/job-scheduler/internal/store"
 	"github.com/go-chi/chi/v5"
 )
 
 func main() {
-	q := queue.NewRedisQueue("localhost:6379")
+	cfg := config.Load()
 
-	pgStore, err := store.NewPostgresStore("postgres://jobuser:jobpass@localhost:5432/jobscheduler?sslmode=disable")
+	q := queue.NewRedisQueue(cfg.RedisAddr)
+	if err := q.Ping(context.Background()); err != nil {
+		log.Fatalf("could not connect to redis: %v", err)
+	}
+
+	pgStore, err := store.NewPostgresStore(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("could not connect to postgres: %v", err)
 	}
@@ -26,11 +34,10 @@ func main() {
 	r.Get("/jobs/{id}", h.GetJob)
 	r.Get("/stats", h.GetStats)
 
-	fs := http.FileServer(http.Dir("./ui"))
-	r.Handle("/*", fs)
+	r.Handle("/*", http.FileServer(http.Dir(cfg.UIDir)))
 
-	log.Println("server listening on :8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	log.Printf("server listening on %s", cfg.HTTPAddr)
+	if err := http.ListenAndServe(cfg.HTTPAddr, r); err != nil {
 		log.Fatal(err)
 	}
 }

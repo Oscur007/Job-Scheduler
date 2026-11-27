@@ -7,23 +7,24 @@ import (
 	"math"
 	"math/rand"
 	"time"
+
+	"github.com/Oscur007/job-scheduler/internal/config"
 	"github.com/Oscur007/job-scheduler/internal/job"
 	"github.com/Oscur007/job-scheduler/internal/queue"
 	"github.com/Oscur007/job-scheduler/internal/store"
 	"github.com/redis/go-redis/v9"
 )
 
-const processingTimeout = 60 * time.Second
-
 func main() {
-	ctx := context.Background()
+		ctx := context.Background()
+	cfg := config.Load()
 
-	q := queue.NewRedisQueue("localhost:6379")
+	q := queue.NewRedisQueue(cfg.RedisAddr)
 	if err := q.Ping(ctx); err != nil {
 		log.Fatalf("could not connect to redis: %v", err)
 	}
 
-	pgStore, err := store.NewPostgresStore("postgres://jobuser:jobpass@localhost:5432/jobscheduler?sslmode=disable")
+	pgStore, err := store.NewPostgresStore(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("could not connect to postgres: %v", err)
 	}
@@ -82,7 +83,7 @@ func main() {
 			continue
 		}
 
-		if err := q.MarkProcessing(ctx, j.ID, processingTimeout); err != nil {
+		if err := q.MarkProcessing(ctx, j.ID, cfg.ProcessingTimeout); err != nil {
 			log.Printf("failed to mark processing: %v", err)
 		}
 
