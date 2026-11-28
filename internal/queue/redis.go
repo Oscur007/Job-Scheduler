@@ -25,6 +25,14 @@ func NewRedisQueue(addr string) *RedisQueue {
 	return &RedisQueue{client: client}
 }
 
+func NewRedisQueueDB(addr string, db int) *RedisQueue {
+	client := redis.NewClient(&redis.Options{
+		Addr: addr,
+		DB:   db,
+	})
+	return &RedisQueue{client: client}
+}
+
 func (q *RedisQueue) EnqueueJob(ctx context.Context, jobID string, jobJSON string, score float64) error {
 	pipe := q.client.TxPipeline()
 	pipe.HSet(ctx, DataKey, jobID, jobJSON)
@@ -34,7 +42,7 @@ func (q *RedisQueue) EnqueueJob(ctx context.Context, jobID string, jobJSON strin
 }
 
 func (q *RedisQueue) DequeueJob(ctx context.Context) (string, error) {
-	now := ComputeScore(time.Now(), 100)
+	now := ComputeScore(time.Now(), 0)
 
 	result, err := q.client.ZRangeArgs(ctx, redis.ZRangeArgs{
 		Key: QueueKey,
